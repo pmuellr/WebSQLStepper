@@ -16,7 +16,7 @@
   # limitations under the License.
   */
 
-  var Stepper, Transaction, WebSQLStepper;
+  var LibraryName, Stepper, Transaction, WebSQLStepper;
 
   WebSQLStepper = (function() {
 
@@ -34,16 +34,18 @@
 
   window.WebSQLStepper = new WebSQLStepper();
 
+  LibraryName = WebSQLStepper.name;
+
   Transaction = (function() {
 
     function Transaction(stepper) {
       var _this = this;
       this.stepper = stepper;
       this.successCB = function(tx, resultSet) {
-        return _this.stepper.stSuccessCB(tx, resultSet);
+        return _this.stepper.nextStep(tx, null, resultSet);
       };
       this.errorCB = function(tx, sqlError) {
-        return _this.stepper.stErrorCB(tx, sqlError);
+        return _this.stepper.nextStep(tx, sqlError, null);
       };
     }
 
@@ -58,18 +60,20 @@
   Stepper = (function() {
 
     function Stepper(db, steps) {
+      var locus;
       this.db = db;
       this.steps = steps;
       this.index = -1;
       this.stepFns = this.getStepFunctions();
+      locus = "initialization";
       if (this.stepFns.length === 0) {
-        throw "no step# methods found in Steps object";
+        this.error("no step# methods found in Steps object", locus);
       }
       if (typeof this.steps.success !== 'function') {
-        throw "no success method found in Steps object";
+        this.error("no success method found in Steps object", locus);
       }
       if (typeof this.steps.error !== 'function') {
-        throw "no error method found in Steps object";
+        this.error("no error method found in Steps object", locus);
       }
     }
 
@@ -77,7 +81,7 @@
       var errorCB, statementCB, successCB;
       var _this = this;
       statementCB = function(tx) {
-        return _this.stSuccessCB(tx);
+        return _this.nextStep(tx);
       };
       successCB = function() {
         return _this.txSuccessCB();
@@ -89,14 +93,6 @@
       return this.db.transaction(statementCB, errorCB, successCB);
     };
 
-    Stepper.prototype.stSuccessCB = function(sqlTx, resultSet) {
-      return this.nextStep(sqlTx, null, resultSet);
-    };
-
-    Stepper.prototype.stErrorCB = function(sqlTx, sqlError) {
-      return this.nextStep(sqlTx, sqlError, null);
-    };
-
     Stepper.prototype.nextStep = function(sqlTx, sqlError, resultSet) {
       var stepFn;
       this.sqlTx = sqlTx;
@@ -106,7 +102,7 @@
       try {
         return stepFn.call(this.steps, this.transaction, sqlError, resultSet);
       } catch (e) {
-        return this.logException(e, "step" + (1 + this.index));
+        return this.error(e, "step" + (1 + this.index) + "()");
       }
     };
 
@@ -114,7 +110,7 @@
       try {
         return this.steps.success.call(this.steps);
       } catch (e) {
-        return this.logException(e, 'success');
+        return this.error(e, 'success()');
       }
     };
 
@@ -122,30 +118,30 @@
       try {
         return this.steps.error.call(this.steps, sqlError);
       } catch (e) {
-        return this.logException(e, 'error');
+        return this.error(e, 'error()');
       }
     };
 
-    Stepper.prototype.logException = function(e, locus) {
-      var cn, message;
-      cn = this.getStepperClassName();
-      message = "exception running " + cn + locus + ": " + e;
+    Stepper.prototype.error = function(e, locus) {
+      var message, stack;
+      message = "" + LibraryName + ": exception during " + (this.getLocus(locus)) + ": " + e;
       console.log(message);
+      stack = e.stack;
+      if (stack) console.log(stack);
       throw e;
     };
 
-    Stepper.prototype.getStepperClassName = function() {
-      var name;
-      name = this.steps.stepsName;
-      if (name) return "" + name + ".";
-      name = this.steps.constructor.name;
-      if (name === 'Object') return "";
-      if (name) return "" + name + ".";
-      return "";
+    Stepper.prototype.getLocus = function(locus) {
+      return "" + (this.getStepperName()) + "." + locus;
     };
 
-    Stepper.prototype.getLocus = function() {
-      return "" + (getStepperClassName()) + locus;
+    Stepper.prototype.getStepperName = function() {
+      var name;
+      name = this.steps.stepsName;
+      if (name) return "" + name;
+      name = this.steps.constructor.name;
+      if (name !== 'Object') return "" + name;
+      return "?";
     };
 
     Stepper.prototype.getStepFunctions = function() {
@@ -156,7 +152,7 @@
         index++;
         name = "step" + index;
         fn = this.steps[name];
-        if (typeof fn !== 'function') return result;
+        if (typeof fn !== 'function') break;
         result.push(fn);
       }
       return result;

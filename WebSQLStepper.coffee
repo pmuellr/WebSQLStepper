@@ -24,15 +24,22 @@ class WebSQLStepper
         stepper.run()
 
 #-------------------------------------------------------------------------------
-window.WebSQLStepper = new WebSQLStepper()
+LibraryName  = WebSQLStepper.name
+
+stepper = new WebSQLStepper()
+
+if module?.exports
+   module.exports = stepper
+else
+   window.WebSQLStepper = stepper
 
 #-------------------------------------------------------------------------------
 class Transaction
 
     #---------------------------------------------------------------------------
     constructor: (@stepper) ->
-        @successCB = (tx, resultSet) => @stepper.stSuccessCB(tx, resultSet)
-        @errorCB   = (tx, sqlError ) => @stepper.stErrorCB(tx, sqlError)
+        @successCB = (tx, resultSet) => @stepper.nextStep(tx, null, resultSet)
+        @errorCB   = (tx, sqlError ) => @stepper.nextStep(tx, sqlError, null)
 
     #---------------------------------------------------------------------------
     executeSql: (sqlStatement, arguments) ->
@@ -46,34 +53,26 @@ class Stepper
         @index   = -1
         @stepFns = @getStepFunctions()
 
+        locus = "initialization"
         if @stepFns.length == 0
-            throw "no step# methods found in Steps object"
+            @error "no step# methods found in Steps object", locus
 
         if typeof @steps.success != 'function'
-            throw "no success method found in Steps object"
+            @error "no success method found in Steps object", locus
 
         if typeof @steps.error != 'function'
-            throw "no error method found in Steps object"
-
+            @error "no error method found in Steps object", locus
 
     #---------------------------------------------------------------------------
     run: () ->
 
-        statementCB = (tx)        => @stSuccessCB(tx)
+        statementCB = (tx)        => @nextStep(tx)
         successCB   = ()          => @txSuccessCB()
         errorCB     = (sqlError ) => @txErrorCB(sqlError)
 
         @transaction = new Transaction(@)
 
         @db.transaction(statementCB, errorCB, successCB)
-
-    #---------------------------------------------------------------------------
-    stSuccessCB: (sqlTx, resultSet) ->
-        @nextStep(sqlTx, null, resultSet)
-
-    #---------------------------------------------------------------------------
-    stErrorCB: (sqlTx, sqlError) ->
-        @nextStep(sqlTx, sqlError, null)
 
     #---------------------------------------------------------------------------
     nextStep: (@sqlTx, sqlError, resultSet) ->
@@ -85,44 +84,45 @@ class Stepper
         try
             stepFn.call(@steps, @transaction, sqlError, resultSet)
         catch e
-            @logException e, "step#{1+@index}"
+            @error e, "step#{1+@index}()"
 
     #---------------------------------------------------------------------------
     txSuccessCB: () ->
         try
             @steps.success.call(@steps)
         catch e
-            @logException e, 'success'
+            @error e, 'success()'
 
     #---------------------------------------------------------------------------
     txErrorCB: (sqlError) ->
         try
             @steps.error.call(@steps, sqlError)
         catch e
-            @logException e, 'error'
+            @error e, 'error()'
 
     #---------------------------------------------------------------------------
-    logException: (e, locus) ->
-        cn = @getStepperClassName()
-        message = "exception running #{cn}#{locus}: #{e}"
+    error: (e, locus) ->
+        message = "#{LibraryName}: exception during #{@getLocus(locus)}: #{e}"
         console.log message
+
+        stack = e.stack
+        console.log stack if stack
+
         throw e
 
     #---------------------------------------------------------------------------
-    getStepperClassName: () ->
-        name = @steps.stepsName
-        return "#{name}." if name
-
-        name = @steps.constructor.name
-        return "" if name == 'Object'
-
-        return "#{name}." if name
-
-        return ""
+    getLocus: (locus) ->
+        "#{@getStepperName()}.#{locus}"
 
     #---------------------------------------------------------------------------
-    getLocus: () ->
-        "#{getStepperClassName()}#{locus}"
+    getStepperName: () ->
+        name = @steps.stepsName
+        return "#{name}" if name
+
+        name = @steps.constructor.name
+        return "#{name}" if name != 'Object'
+
+        return "?"
 
     #---------------------------------------------------------------------------
     getStepFunctions: () ->
@@ -134,7 +134,7 @@ class Stepper
             name = "step#{index}"
             fn   = @steps[name]
 
-            return result if typeof fn != 'function'
+            break if typeof fn != 'function'
 
             result.push fn
 

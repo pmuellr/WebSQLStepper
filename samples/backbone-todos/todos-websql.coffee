@@ -25,7 +25,6 @@
 #         error:    (message) ->
 #-------------------------------------------------------------------------------
 
-WSS    = WebSQLStepper
 Stores = {}
 
 #-------------------------------------------------------------------------------
@@ -36,7 +35,7 @@ Backbone.sync = (method, model, options) ->
     store = model.localStorage || model.collection.localStorage;
 
     if not store.tableCreated
-        return store.createTable(method, model, options)
+        return store.createTableThenSync(method, model, options)
 
     switch method
         when "read"
@@ -62,179 +61,176 @@ window.Store = class Store
         return Stores[@name] if Stores[@name]
         Stores[@name] = this
 
-        wdbName    = "#{@name}DB"
-        wdbComment = "#{@name}DB"
+        @tableCreated = false
+
+        @openDatabase()
+
+    #---------------------------------------------------------------------------
+    openDatabase: ->
+        wdbName    = "#{@name}"
+        wdbComment = "#{@name}"
         wdbSize    = 1*1024*1024
 
         @wdb = window.openDatabase(wdbName, '', wdbComment, wdbSize)
 
-        @tableCreated = false
-
     #---------------------------------------------------------------------------
-    createTable: (method, model, options) ->
-        store = @
-
-        WSS.transaction @wdb,
-            stepsName: 'createTable'
-
-            #----------------------------------
-            error: (sqlError) ->
-                store.error(sqlError, options)
-
-            #----------------------------------
-            step1: (tx) ->
-                tx.executeSql 'CREATE TABLE IF NOT EXISTS store (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT)'
-
-            #----------------------------------
-            step2: (tx, sqlError, resultSet) ->
-                return if sqlError
-
-            #----------------------------------
-            success: ->
-                store.tableCreated = true
-                Backbone.sync(method, model, options)
+    createTableThenSync: (method, model, options) ->
+        WebSQLStepper.transaction @wdb, new CreateTableThenSyncSteps(@, model, options, method)
 
     #---------------------------------------------------------------------------
     create: (model, options) ->
-        store = @
-
-        WSS.transaction @wdb,
-            stepsName: 'create'
-
-            #----------------------------------
-            error: (sqlError) ->
-                store.error(sqlError, options)
-
-            #----------------------------------
-            step1: (tx) ->
-                data = JSON.stringify(model.toJSON())
-                tx.executeSql 'INSERT INTO store VALUES(NULL, ?)', [data]
-
-            #----------------------------------
-            step2: (tx, sqlError, resultSet) ->
-                return if sqlError
-
-                @id = resultSet.insertId
-
-            #----------------------------------
-            success: ->
-                model.id = @id
-                options.success model
+        WebSQLStepper.transaction @wdb, new CreateSteps(@, model, options)
 
     #---------------------------------------------------------------------------
     read: (model, options) ->
-        store = @
-
-        WSS.transaction @wdb,
-            stepsName: 'read'
-
-            #----------------------------------
-            error: (sqlError) ->
-                store.error(sqlError, options)
-
-            #----------------------------------
-            step1: (tx) ->
-                tx.executeSql 'SELECT * FROM store WHERE id=?', [model.id]
-
-            #----------------------------------
-            step2: (tx, sqlError, resultSet) ->
-                return if sqlError
-
-                if resultSet.rows.length != 1
-                    throw "invalid state: #{resultSet.rows.length} rows with id=#{model.id}"
-
-                row     = resultSet.rows.item(0)
-                id      = row.id
-                data    = row.data
-                data.id = id
-
-                @data = data
-
-            #----------------------------------
-            success: ->
-                model.set(JSON.parse(@data))
-                options.success model
+        WebSQLStepper.transaction @wdb, new ReadSteps(@, model, options)
 
     #---------------------------------------------------------------------------
     readAll: (options) ->
-        store = @
-
-        WSS.transaction @wdb,
-            stepsName: 'readAll'
-
-            #----------------------------------
-            error: (sqlError) ->
-                store.error(sqlError, options)
-
-            #----------------------------------
-            step1: (tx) ->
-                tx.executeSql 'SELECT * FROM store'
-
-            #----------------------------------
-            step2: (tx, sqlError, resultSet) ->
-                return if sqlError
-
-                @items = []
-                for i in [0...resultSet.rows.length]
-                    row     = resultSet.rows.item(i)
-                    id      = row.id
-                    data    = JSON.parse(row.data)
-                    data.id = id
-                    @items.push data
-
-            #----------------------------------
-            success: ->
-                options.success @items
+        WebSQLStepper.transaction @wdb, new ReadAllSteps(@, null, options)
 
     #---------------------------------------------------------------------------
     update: (model, options) ->
-        store = @
-
-        WSS.transaction @wdb,
-            stepsName: 'update'
-
-            #----------------------------------
-            error: (sqlError) ->
-                store.error(sqlError, options)
-
-            #----------------------------------
-            step1: (tx) ->
-                data = JSON.stringify(model.toJSON())
-                tx.executeSql 'UPDATE store SET data=? WHERE id=?', [data, model.id]
-
-            #----------------------------------
-            success: ->
-                options.success model
+        WebSQLStepper.transaction @wdb, new UpdateSteps(@, model, options)
 
     #---------------------------------------------------------------------------
     delete: (model, options) ->
-        store = @
+        WebSQLStepper.transaction @wdb, new DeleteSteps(@, model, options)
 
-        WSS.transaction @wdb,
-            stepsName: 'delete'
-
-            #----------------------------------
-            error: (sqlError) ->
-                store.error(sqlError, options)
-
-            #----------------------------------
-            step1: (tx) ->
-                tx.executeSql 'DELETE FROM store WHERE id=?', [model.id]
-
-            #----------------------------------
-            success: ->
-                options.success model
+#-------------------------------------------------------------------------------
+class Steps
 
     #---------------------------------------------------------------------------
-    error: (sqlError, options) ->
-        if sqlError
-            message = "#{sqlError.code}: #{sqlError.message}"
-        else
-            message = 'unknown error'
+    constructor: (@store, @model, @options, @method) ->
+        @stepsName = @constructor.name
 
-        console.log message
+    #---------------------------------------------------------------------------
+    error: (sqlError) ->
+        message = "SQL Error #{sqlError.code}: #{sqlError.message}"
 
-        if options.error
-            options.error message
+        console.log  message
+        @options.error message
+
+    #---------------------------------------------------------------------------
+    success: (result) ->
+        @options.success result
+
+    #---------------------------------------------------------------------------
+    model2data: (model) ->
+        JSON.stringify(model.toJSON())
+
+    #---------------------------------------------------------------------------
+    data2model: (data, model) ->
+        modelData = JSON.parse(data)
+
+        if model
+            model.set(modelData)
         else
-            throw message
+            model = modelData
+
+        model
+
+#-------------------------------------------------------------------------------
+class CreateTableThenSyncSteps extends Steps
+
+    #---------------------------------------------------------------------------
+    step1: (tx) ->
+        tx.executeSql 'CREATE TABLE IF NOT EXISTS store (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT)'
+
+    #---------------------------------------------------------------------------
+    success: ->
+        @store.tableCreated = true
+        Backbone.sync(@method, @model, @options)
+
+#-------------------------------------------------------------------------------
+class CreateSteps extends Steps
+
+    #---------------------------------------------------------------------------
+    step1: (tx) ->
+        data = @model2data @model
+        tx.executeSql 'INSERT INTO store VALUES(NULL, ?)', [data]
+
+    #---------------------------------------------------------------------------
+    step2: (tx, sqlError, resultSet) ->
+        return if sqlError
+
+        @id = resultSet.insertId
+
+    #---------------------------------------------------------------------------
+    success: ->
+        @model.id = @id
+        super @model
+
+#-------------------------------------------------------------------------------
+class ReadSteps extends Steps
+
+    #---------------------------------------------------------------------------
+    step1: (tx) ->
+        tx.executeSql 'SELECT * FROM store WHERE id=?', [@model.id]
+
+    #---------------------------------------------------------------------------
+    step2: (tx, sqlError, resultSet) ->
+        return if sqlError
+
+        if resultSet.rows.length != 1
+            throw "invalid state: #{resultSet.rows.length} rows with id=#{model.id}"
+
+        row     = resultSet.rows.item(0)
+        id      = row.id
+        data    = row.data
+        data.id = id
+
+        @data = data
+
+    #---------------------------------------------------------------------------
+    success: ->
+        @data2model @data, @model
+        super @model
+
+#-------------------------------------------------------------------------------
+class ReadAllSteps extends Steps
+
+    #---------------------------------------------------------------------------
+    step1: (tx) ->
+        tx.executeSql 'SELECT * FROM store'
+
+    #---------------------------------------------------------------------------
+    step2: (tx, sqlError, resultSet) ->
+        return if sqlError
+
+        @models = []
+        for i in [0...resultSet.rows.length]
+            row     = resultSet.rows.item(i)
+            id      = row.id
+            model   = @data2model row.data
+            model.id = id
+            @models.push model
+
+    #---------------------------------------------------------------------------
+    success: ->
+        super @models
+
+#-------------------------------------------------------------------------------
+class UpdateSteps extends Steps
+
+    #---------------------------------------------------------------------------
+    step1: (tx) ->
+        data = @model2data @model
+        tx.executeSql 'UPDATE store SET data=? WHERE id=?', [data, @model.id]
+
+    #---------------------------------------------------------------------------
+    success: ->
+        super @model
+
+#-------------------------------------------------------------------------------
+class DeleteSteps extends Steps
+
+    #---------------------------------------------------------------------------
+    step1: (tx) ->
+        tx.executeSql 'DELETE FROM store WHERE id=?', [@model.id]
+
+    #---------------------------------------------------------------------------
+    success: ->
+        super @model
+
+

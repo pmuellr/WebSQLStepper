@@ -1,8 +1,8 @@
 WebSQLStepper
 =============
 
-A simple layer over Web SQL to help avoid callback hell.  It's pretty simple,
-you wiill still have to have some familiarity with the [WebSQL][] API.
+A simple layer over Web SQL to help avoid callback hell.  It's a pretty thin layer,
+so you will still have to have familiarity with the [WebSQL][] API.
 
 api
 ===
@@ -17,20 +17,24 @@ a transaction.
 
 > **parameters**
 
-> * `db` is an instance of the Web SQL `Database` interface
+> * `db` is an instance of the Web SQL <tt>[Database][]</tt> interface
 > * `steps` is an instance of the `Steps` interface
 
-> Runs the steps in a `steps` object as a transaction.
+> Runs the steps in the `steps` parameter as a transaction.
 
 Steps interface
 -----------------
 
 A `Steps` object is an object you create that provides the methods listed
-below.  Your `Steps` object is passed to `WebSQLStepper.transaction()` and
-will then have it's methods invoked to execute the transaction.
+below.  You pass your `Steps` object to `WebSQLStepper.transaction()` and
+then the `Steps` objects' methods will be called during the lifetime of the
+transaction.
 
-All the methods invoked on a `Steps` object pass the `Steps` object
+All the methods invoked on a `Steps` object pass the `Steps` object itself
 as the `this` value.
+
+A `Steps` object may also have a property `stepsName`, which is be used
+to describe the object in diagnostics.
 
 **`success()`**
 
@@ -40,7 +44,7 @@ as the `this` value.
 
 > **parameters**
 
-> * `sqlError` is an instance of a Web SQL SqlError interface
+> * `sqlError` is an instance of a Web SQL <tt>[SQLError][]</tt> interface
 
 > This function will be invoked if the transaction does not complete successfully.
 
@@ -49,27 +53,25 @@ as the `this` value.
 > **parameters**
 
 > * `transaction` is an instance of a `Transaction` interface
-> * `sqlError` is an instance of a Web SQL SqlError interface
-> * `resultSet` is an instance of a Web SQL SqlResultSet interface
+> * `sqlError` is an instance of a Web SQL <tt>[SQLError][]</tt> interface
+> * `resultSet` is an instance of a Web SQL <tt>[SQLResultSet][]</tt> interface
 
 > The `Steps` object can have multiple step methods, each named as
 > `step1`, `step2`, and so on.  The steps will be executed in sequence,
 > starting at `step1` working up to the last step.  Each step must make one
-> call to the `tx.executeSql()` method.  The results of executing that
+> call to the `transaction.executeSql()` method.  The results of executing that
 > SQL statement will be passed to the next step in it's arguments - the
 > `sqlError` in case an error occurred while executing the statement, or
 > the `resultSet` object in the case the statement executed successfully.
 > When all of the statements have completed, either the `success()` or
 > `error()` method of the `Steps` object will be invoked.
 
-> A `Steps` object may also have a property `stepsName`, which can be used
-> to describe the object in diagnostics.
-
 Transaction interface
 -----------------------
 
 The `transaction` parameter passed to a step is used to execute SQL
-statements.
+statements.  It is an analogue of the Web SQL <tt>[SQLTransaction][]</tt>
+interface.
 
 **`executeSql(sqlStatement, arguments)`**
 
@@ -108,11 +110,15 @@ examples
 references
 ==========
 
-[WebSQL]: http://www.w3.org/TR/webdatabase/ "WebSQL specification"
-[SQLite]: http://www.sqlite.org/docs.html   "SQLite documentation"
-
 * [Web SQL Database specification][WebSQL]
 * [SQLite documentation][SQLite]
+
+[SQLite]:         http://www.sqlite.org/docs.html                  "SQLite documentation"
+[WebSQL]:         http://www.w3.org/TR/webdatabase/                "WebSQL specification"
+[Database]:       http://www.w3.org/TR/webdatabase/#database       "WebSQL Database interface"
+[SQLTransaction]: http://www.w3.org/TR/webdatabase/#sqltransaction "WebSQL SQLTransaction interface"
+[SQLResultSet]:   http://www.w3.org/TR/webdatabase/#sqlresultset   "WebSQL SQLResultSet interface"
+[SQLError]:       http://www.w3.org/TR/webdatabase/#sqlerror       "WebSQL SQLError interface"
 
 license / copyright
 ===================

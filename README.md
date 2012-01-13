@@ -7,7 +7,7 @@ you wiill still have to have some familiarity with the [WebSQL][] API.
 api
 ===
 
-`WebSQLStepper` global object
+WebSQLStepper global object
 -----------------------------
 
 The global variable `WebSQLStepper` provides a single method to invoke
@@ -22,7 +22,7 @@ a transaction.
 
 > Runs the steps in a `steps` object as a transaction.
 
-`Steps` interface
+Steps interface
 -----------------
 
 A `Steps` object is an object you create that provides the methods listed
@@ -65,7 +65,7 @@ as the `this` value.
 > A `Steps` object may also have a property `stepsName`, which can be used
 > to describe the object in diagnostics.
 
-`Transaction` interface
+Transaction interface
 -----------------------
 
 The `transaction` parameter passed to a step is used to execute SQL
